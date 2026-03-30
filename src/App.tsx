@@ -20,7 +20,16 @@ const App: React.FC = () => {
   const [usernameInput, setUsernameInput] = useState('');
   const [gameState, setGameState] = useState<'menu' | 'shop' | 'playing' | 'gameOver'>('menu');
   
-  const [stats, setStats] = useState<GameStats>({ health: 100, fuel: 100, points: 0, speed: 0, alt: 0, dist: 0, warning: '' });
+  const [stats, setStats] = useState<GameStats>({ 
+    health: 100, 
+    fuel: 100, 
+    points: 0, 
+    speed: 0, 
+    alt: 0, 
+    dist: 0, 
+    warning: '',
+    isCrashing: false 
+  });
   const [discovery, setDiscovery] = useState<{ name: string; visible: boolean }>({ name: '', visible: false });
   const [gameOverReason, setGameOverReason] = useState('');
 
@@ -261,10 +270,19 @@ const App: React.FC = () => {
             {/* Right Stats */}
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '1.5em' }}>{stats.points.toLocaleString()} PTS</div>
-              <div style={{ marginTop: '10px' }}>SPD: {stats.speed} m/s</div>
+              <div style={{ marginTop: '10px' }}>SPD: {stats.speed} km/h</div>
               <div>ALT: {stats.alt} m</div>
               <div>DST: {stats.dist} m</div>
             </div>
+          </div>
+
+          {/* Crosshair */}
+          <div style={{
+            position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            color: 'rgba(255, 255, 255, 0.6)', fontSize: '2em', fontWeight: 'lighter',
+            pointerEvents: 'none', userSelect: 'none', zIndex: 5, fontFamily: 'sans-serif'
+          }}>
+            +
           </div>
 
           {/* Discovery Text */}
@@ -277,6 +295,23 @@ const App: React.FC = () => {
             APPROACHING ZONE<br />
             <span style={{ fontSize: '1.5em', color: '#0ff' }}>{discovery.name}</span>
           </div>
+
+          {/* Crash Flashing Light */}
+          {(stats.isCrashing || (gameState as string) === 'gameOver') && (
+            <div style={{
+                position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                backgroundColor: 'rgba(255, 0, 0, 0.3)', zIndex: 30,
+                animation: 'crashFlash 0.15s infinite alternate',
+                pointerEvents: 'none'
+            }}>
+                <style>{`
+                    @keyframes crashFlash {
+                        from { opacity: 0; }
+                        to { opacity: 1; }
+                    }
+                `}</style>
+            </div>
+          )}
 
           {/* Altitude Warnings */}
           {stats.warning && (

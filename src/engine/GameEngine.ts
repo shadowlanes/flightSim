@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { CONFIG } from './constants';
 import { Upgrades } from './PersistenceService';
 import { TerrainManager } from './TerrainManager';
@@ -12,12 +15,14 @@ export interface GameStats {
   alt: number;
   dist: number;
   warning: string;
+  isCrashing: boolean;
 }
 
 export class GameEngine {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
+  private composer: EffectComposer;
   private terrain: TerrainManager;
   private ship: ShipController;
   private stars: THREE.Points;
@@ -35,6 +40,9 @@ export class GameEngine {
   private fuel = CONFIG.maxFuel;
   public points = 0;
   private isGameOver = false;
+  private isCrashing = false;
+  private crashReason = "";
+  private crashTimer = 0;
   private shakeTimer = 0;
   private lastDist = 0;
 
@@ -63,7 +71,12 @@ export class GameEngine {
     this.scene.fog = fog;
     this.renderer.setClearColor(0x000005);
 
-    this.terrain = new TerrainManager(this.scene, this.renderer, fog);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+    sun.position.set(200, 50, 100); 
+    sun.castShadow = true;
+    this.scene.add(sun);
+
+    this.terrain = new TerrainManager(this.scene, this.renderer, fog, sun);
     this.terrain.onBiomeChange = (name) => this.onBiomeChange?.(name);
 
     this.ship = new ShipController(this.upgrades);
@@ -87,6 +100,20 @@ export class GameEngine {
     this.scene.add(this.particles);
 
     this.setupLighting();
+
+    // Post-processing
+    this.composer = new EffectComposer(this.renderer);
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.8, // strength
+      0.3, // radius
+      0.8 // threshold
+    );
+    this.composer.addPass(bloomPass);
+
     window.addEventListener('resize', this.onResize.bind(this));
   }
 
@@ -101,10 +128,7 @@ export class GameEngine {
   }
 
   private setupLighting() {
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-    sun.position.set(100, 200, 100);
-    this.scene.add(sun);
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.4));
   }
 
   private triggerFuelEffect(pos: THREE.Vector3) {
@@ -169,39 +193,76 @@ export class GameEngine {
   }
 
   private triggerDeath(reason: string) {
-    if (this.isGameOver) return;
-    this.isGameOver = true;
-    this.ship.group.scale.set(5, 5, 5);
+    if (this.isGameOver || this.isCrashing) return;
+    this.isCrashing = true;
+    this.crashReason = reason;
+    this.crashTimer = 0.5; // Faster crash sequence
+    this.shakeTimer = 1.0;
+
+    // Make ship black immediately
     this.ship.group.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) obj.material = new THREE.MeshBasicMaterial({ color: 0xffaa00, wireframe: true });
+      if (obj instanceof THREE.Mesh) {
+        obj.material = new THREE.MeshBasicMaterial({ color: 0x000000 });
+      }
     });
-    setTimeout(() => this.onGameOver?.(reason), 1000);
   }
 
   private onResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
   }
 
   public animate() {
     if (this.isGameOver) {
-      this.renderer.render(this.scene, this.camera);
+      this.composer.render();
       return;
     }
 
+    if (this.isCrashing) {
+        this.crashTimer -= 0.016;
+        this.shakeTimer = Math.max(this.shakeTimer, 0.8);
+        
+        // Fast camera roll
+        this.camera.rotation.z += 0.2;
+        
+        // Ship falls slightly
+        this.ship.group.position.y -= 0.8;
+  
+        if (this.crashTimer <= 0) {
+          this.isGameOver = true;
+          this.onGameOver?.(this.crashReason);
+        }
+    }
+
     const distTotal = this.ship.group.position.length();
+    const dist2D = Math.sqrt(this.ship.group.position.x ** 2 + this.ship.group.position.z ** 2);
     const deltaDist = distTotal - this.lastDist;
     this.lastDist = distTotal;
 
-    const biomeMultiplier = 0.1 + (Math.floor(distTotal / CONFIG.biomeDist) * 0.1);
-    this.points += deltaDist * biomeMultiplier;
+    const pointsMultiplier = 0.1 + (Math.floor(dist2D / CONFIG.biomeDist) * 0.1);
+    this.points += deltaDist * pointsMultiplier;
 
     const alt = this.ship.group.position.y + 50;
+    
+    // Proximity/Crash Detection
+    const forward = new THREE.Vector3(0, 0, 10).applyQuaternion(this.ship.group.quaternion);
+    const lookAheadPos = this.ship.group.position.clone().add(forward);
+    const terrainHeightAtShip = this.terrain.getHeight(this.ship.group.position.x, this.ship.group.position.z) - 50;
+    const terrainHeightAhead = this.terrain.getHeight(lookAheadPos.x, lookAheadPos.z) - 50;
+
     let currentFuelDrain = this.fuelDrainRate;
     this.altWarning = "";
 
-    if (alt >= 150) {
+    const isCloseToGround = this.ship.group.position.y < terrainHeightAtShip + 15;
+    const isApproachingObstacle = this.ship.group.position.y < terrainHeightAhead + 15;
+
+    if (isCloseToGround || isApproachingObstacle) {
+        this.altWarning = "PULL UP!";
+        // Increased persistent shake during warning
+        this.shakeTimer = Math.max(this.shakeTimer, 0.4);
+    } else if (alt >= 150) {
         currentFuelDrain *= 10;
         this.altGameOverTimer += 0.016;
         this.altWarning = `PULL BACK IMMEDIATELY! ${Math.max(0, 3 - this.altGameOverTimer).toFixed(1)}s`;
@@ -214,19 +275,34 @@ export class GameEngine {
         this.altGameOverTimer = 0;
     }
 
-    this.fuel -= currentFuelDrain;
-    if (this.fuel <= 0) this.triggerDeath("FUEL EXHAUSTED");
+    if (!this.isCrashing) {
+        this.fuel -= currentFuelDrain;
+        if (this.fuel <= 0) this.triggerDeath("FUEL EXHAUSTED");
 
-    const currentSpeed = CONFIG.baseForwardSpeed * this.terrain.getSpeedMultiplier();
-    this.ship.update(currentSpeed);
+        const speedBiomeMultiplier = this.terrain.getSpeedMultiplier();
+        this.ship.update(speedBiomeMultiplier);
+    }
 
     const idealPos = CONFIG.cameraOffset.clone().applyQuaternion(this.ship.group.quaternion).add(this.ship.group.position);
     if (this.shakeTimer > 0) {
-      idealPos.x += (Math.random() - 0.5) * 2;
-      idealPos.y += (Math.random() - 0.5) * 2;
+      // Increased shake intensity from 2 to 5 for more impact
+      idealPos.x += (Math.random() - 0.5) * 5;
+      idealPos.y += (Math.random() - 0.5) * 5;
+      idealPos.z += (Math.random() - 0.5) * 5;
       this.shakeTimer -= 0.016;
     }
     this.camera.position.lerp(idealPos, CONFIG.cameraLerp);
+
+    // Prevent camera from going through the floor terrain
+    const terrainHeightAtCamera = this.terrain.getHeight(this.camera.position.x, this.camera.position.z) - 50;
+    if (this.camera.position.y < terrainHeightAtCamera + 2) {
+      this.camera.position.y = terrainHeightAtCamera + 2;
+    }
+    
+    // Maintain camera 'up' relative to ship for free-roam
+    const shipUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.ship.group.quaternion);
+    this.camera.up.lerp(shipUp, CONFIG.cameraLerp);
+    
     this.camera.lookAt(CONFIG.cameraLookAtOffset.clone().applyQuaternion(this.ship.group.quaternion).add(this.ship.group.position));
 
     this.terrain.fuelCells.forEach(f => {
@@ -234,19 +310,20 @@ export class GameEngine {
         f.position.y += Math.sin(Date.now() * 0.003) * 0.05;
     });
     
-    this.terrain.update(this.ship.group.position, this.scene, distTotal);
+    this.terrain.update(this.ship.group.position, this.scene, dist2D);
     this.checkCollisions();
     this.updateParticles();
     this.stars.position.copy(this.camera.position);
 
     this.onUpdateStats?.({
       health: Math.round((this.health / this.maxHealth) * 100), fuel: this.fuel, points: Math.floor(this.points),
-      speed: Math.round(currentSpeed * 100),
+      speed: Math.round(this.ship.currentSpeed * 3.6), // Convert to km/h
       alt: Math.round(alt),
       dist: Math.round(distTotal),
-      warning: this.altWarning
+      warning: this.altWarning,
+      isCrashing: this.isCrashing
     });
 
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 }

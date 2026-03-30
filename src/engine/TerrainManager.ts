@@ -1,14 +1,18 @@
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
-import { CONFIG, BIOMES, getRandomPlanetName } from './constants';
+import { CONFIG, BIOMES, getRandomPlanetName, Biome } from './constants';
+
+const TERRAIN_PARAMS = {
+  'FLAT': { freq: 0.002, amp: 15, power: 1, octaves: 2, ridged: false },
+  'HILLS': { freq: 0.004, amp: 45, power: 1.5, octaves: 3, ridged: false },
+  'MOUNTAINS': { freq: 0.006, amp: 110, power: 2.2, octaves: 4, ridged: true },
+  'GORGES': { freq: 0.005, amp: 130, power: 0.6, octaves: 3, ridged: false }
+};
 
 export class TerrainManager {
   private noise2D = createNoise2D();
-  private biomeNoise2D = createNoise2D();
-  private warpNoise2D = createNoise2D();
-  private dramaNoise2D = createNoise2D();
   private terrainChunks: Map<string, THREE.Group> = new Map();
-  private terrainMaterial: THREE.MeshPhongMaterial;
+  private terrainMaterial: THREE.MeshStandardMaterial;
   
   public obstacles: THREE.Mesh[] = [];
   public fuelCells: THREE.Group[] = [];
@@ -18,129 +22,80 @@ export class TerrainManager {
   private biomeTransition = 1;
   private fog: THREE.FogExp2;
   private renderer: THREE.WebGLRenderer;
+  private sun: THREE.DirectionalLight;
 
   public onBiomeChange?: (name: string) => void;
 
-  constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, fog: THREE.FogExp2) {
+  constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, fog: THREE.FogExp2, sun: THREE.DirectionalLight) {
     this.renderer = renderer;
     this.fog = fog;
-    this.terrainMaterial = new THREE.MeshPhongMaterial({
-      color: BIOMES[0].ground,
+    this.sun = sun;
+    this.terrainMaterial = new THREE.MeshStandardMaterial({
+      color: 0xff4400, // Mars Red
       flatShading: true,
-      shininess: 0
+      roughness: 0.8,
+      metalness: 0.2
     });
   }
 
-  private fbm(x: number, z: number) {
-    let total = 0;
-    let frequency = 0.005;
+  private getNoise(x: number, z: number, freq: number, octaves: number, ridged: boolean): number {
+    let value = 0;
     let amplitude = 1;
-    let maxValue = 0;
-    for (let i = 0; i < 6; i++) {
-      total += (this.noise2D(x * frequency, z * frequency)) * amplitude;
-      maxValue += amplitude;
-      amplitude *= 0.5;
-      frequency *= 2.0;
-    }
-    return (total / maxValue + 1) / 2;
-  }
+    let f = freq;
+    let weight = 0;
 
-  private ridgedFbm(x: number, z: number) {
-    let total = 0;
-    let frequency = 0.005;
-    let amplitude = 1;
-    let maxValue = 0;
-    for (let i = 0; i < 6; i++) {
-      let n = this.noise2D(x * frequency, z * frequency);
-      n = 1.0 - Math.abs(n);
-      total += n * amplitude;
-      maxValue += amplitude;
-      amplitude *= 0.5;
-      frequency *= 2.0;
-    }
-    return total / maxValue;
-  }
+    for (let i = 0; i < octaves; i++) {
+      let n = this.noise2D(x * f, z * f);
+      
+      if (ridged) {
+        n = 1.0 - Math.abs(n);
+        n = n * n; // Sharpen peaks
+      } else {
+        n = (n + 1) / 2;
+      }
 
-  private gorgeFbm(x: number, z: number) {
-    let total = 0;
-    let frequency = 0.005;
-    let amplitude = 1;
-    let maxValue = 0;
-    for (let i = 0; i < 6; i++) {
-      let n = this.noise2D(x * frequency, z * frequency);
-      n = Math.abs(n);
-      total += n * amplitude;
-      maxValue += amplitude;
+      value += n * amplitude;
+      weight += amplitude;
       amplitude *= 0.5;
-      frequency *= 2.0;
+      f *= 2.1;
     }
-    return total / maxValue;
-  }
 
-  private warp(x: number, z: number): [number, number] {
-    const warpFreq = 0.002;
-    const warpAmp = 40;
-    
-    // Warp 1
-    const qx = this.warpNoise2D(x * warpFreq, z * warpFreq) * warpAmp;
-    const qz = this.warpNoise2D((x + 5.2) * warpFreq, (z + 1.3) * warpFreq) * warpAmp;
-    
-    // Warp 2 (Double warp for extreme terrain)
-    const rx = this.warpNoise2D((x + qx + 1.7) * warpFreq, (z + qz + 9.2) * warpFreq) * warpAmp;
-    const rz = this.warpNoise2D((x + qx + 8.3) * warpFreq, (z + qz + 2.8) * warpFreq) * warpAmp;
-    
-    return [x + rx, z + rz];
+    return value / weight;
   }
 
   public getHeight(x: number, z: number) {
-    const [wx, wz] = this.warp(x, z);
-    const bFreq = 0.0012;
-    const biomeValue = (this.biomeNoise2D(wx * bFreq, wz * bFreq) + 1) / 2;
+    const dist = Math.sqrt(x * x + z * z);
+    const biomeIdx = Math.floor(dist / CONFIG.biomeDist);
+    const nextBiomeIdx = biomeIdx + 1;
+    const transition = (dist % CONFIG.biomeDist) / CONFIG.biomeDist;
+
+    const b1 = BIOMES[biomeIdx % BIOMES.length];
+    const b2 = BIOMES[nextBiomeIdx % BIOMES.length];
+
+    const p1 = TERRAIN_PARAMS[b1.terrainType];
+    const p2 = TERRAIN_PARAMS[b2.terrainType];
+
+    // Sample noise for both biomes and lerp
+    const n1 = this.getNoise(x, z, p1.freq, p1.octaves, p1.ridged);
+    const n2 = this.getNoise(x, z, p2.freq, p2.octaves, p2.ridged);
     
-    // Drama multiplier (very low frequency)
-    const dFreq = 0.0005;
-    const dramaControl = (this.dramaNoise2D(wx * dFreq, wz * dFreq) + 1) / 2;
+    // Special handling for GORGES in the noise itself if needed
+    let val1 = n1;
+    let val2 = n2;
     
-    const noiseNormal = this.fbm(wx, wz);
-    const noiseRidged = this.ridgedFbm(wx, wz);
-    const noiseGorge = this.gorgeFbm(wx, wz);
+    if (b1.terrainType === 'GORGES') val1 = Math.pow(val1, p1.power);
+    else val1 = Math.pow(val1, p1.power);
     
-    const plainsToHills = THREE.MathUtils.smoothstep(biomeValue, 0.25, 0.4);
-    const hillsToMountains = THREE.MathUtils.smoothstep(biomeValue, 0.55, 0.7);
-    const mountainsToGorges = THREE.MathUtils.smoothstep(biomeValue, 0.8, 0.95);
+    if (b2.terrainType === 'GORGES') val2 = Math.pow(val2, p2.power);
+    else val2 = Math.pow(val2, p2.power);
 
-    const plainsMult = 0.15;
-    const hillsMult = 0.5;
-    const mountainMult = 1.8;
-    const gorgeMult = 2.0;
-
-    let finalNoise = THREE.MathUtils.lerp(noiseNormal, noiseNormal, plainsToHills);
-    finalNoise = THREE.MathUtils.lerp(finalNoise, noiseRidged, hillsToMountains);
-
-    let m = THREE.MathUtils.lerp(plainsMult, hillsMult, plainsToHills);
-    m = THREE.MathUtils.lerp(m, mountainMult, hillsToMountains);
-
-    // Apply Drama Multiplier
-    const spireWeight = THREE.MathUtils.smoothstep(dramaControl, 0.55, 0.8);
-    const trenchWeight = THREE.MathUtils.smoothstep(dramaControl, 0.45, 0.2);
+    const n = THREE.MathUtils.lerp(val1, val2, transition);
+    const amp = THREE.MathUtils.lerp(p1.amp, p2.amp, transition);
     
-    let dramaMult = THREE.MathUtils.lerp(1.0, 2.5, spireWeight);
-    dramaMult = THREE.MathUtils.lerp(dramaMult, 0.5, trenchWeight);
-    
-    m *= dramaMult;
+    const baseHeight = amp;
+    const offset = -45;
 
-    const baseHeight = 120;
-    const offset = -30;
-
-    let height = (finalNoise * baseHeight * m) + offset;
-
-    if (biomeValue > 0.8) {
-        const gorgeDepth = (noiseGorge * baseHeight * gorgeMult * dramaMult);
-        const targetGorgeHeight = offset - gorgeDepth;
-        height = THREE.MathUtils.lerp(height, targetGorgeHeight, mountainsToGorges);
-    }
-
-    return height;
+    return (n * baseHeight) + offset;
   }
 
   private createChunk(cx: number, cz: number, scene: THREE.Scene) {
@@ -152,55 +107,14 @@ export class TerrainManager {
     
     const pos = geo.attributes.position;
     const vertexCount = (res + 1) * (res + 1);
-    const heights = new Float32Array(vertexCount);
 
-    // Initial height generation
     for (let i = 0; i <= res; i++) {
       for (let j = 0; j <= res; j++) {
         const px = (j / res - 0.5) * size + cx * size;
         const pz = (i / res - 0.5) * size + cz * size;
-        heights[i * (res + 1) + j] = this.getHeight(px, pz);
+        const idx = i * (res + 1) + j;
+        pos.setY(idx, this.getHeight(px, pz));
       }
-    }
-
-    // 2-pass smoothing for low-lying areas
-    for (let pass = 0; pass < 2; pass++) {
-        const newHeights = new Float32Array(heights);
-        for (let i = 0; i <= res; i++) {
-            for (let j = 0; j <= res; j++) {
-                const idx = i * (res + 1) + j;
-                const h = heights[idx];
-
-                // Only smooth flat low-lying areas (height < -10)
-                if (h < -10) {
-                    let sum = h;
-                    let count = 1;
-
-                    // Sample neighbors (including across chunk boundaries if needed)
-                    // For simplicity and seamlessness, we'll just use the 2D array we have
-                    // and fall back to getHeight for boundaries to ensure no seams.
-                    const neighbors = [[i-1, j], [i+1, j], [i, j-1], [i, j+1]];
-                    for (const [ni, nj] of neighbors) {
-                        if (ni >= 0 && ni <= res && nj >= 0 && nj <= res) {
-                            sum += heights[ni * (res + 1) + nj];
-                        } else {
-                            // Boundary neighbor - sample fresh to avoid seams
-                            const npx = (nj / res - 0.5) * size + cx * size;
-                            const npz = (ni / res - 0.5) * size + cz * size;
-                            sum += this.getHeight(npx, npz);
-                        }
-                        count++;
-                    }
-                    newHeights[idx] = sum / count;
-                }
-            }
-        }
-        heights.set(newHeights);
-    }
-
-    // Apply heights to geometry
-    for (let i = 0; i < vertexCount; i++) {
-      pos.setY(i, heights[i]);
     }
     
     geo.computeVertexNormals();
@@ -277,16 +191,27 @@ export class TerrainManager {
       this.nextBiomeIndex = targetIdx;
       this.biomeTransition = 0;
       this.onBiomeChange?.(getRandomPlanetName());
+      
+      // Randomize terrain color on biome change
+      const randomColor = new THREE.Color().setHSL(Math.random(), 0.7, 0.5);
+      this.terrainMaterial.color.copy(randomColor);
     }
 
     if (this.biomeTransition < 1) {
       this.biomeTransition += 0.005;
       const b1 = BIOMES[this.currentBiomeIndex % BIOMES.length];
       const b2 = BIOMES[this.nextBiomeIndex % BIOMES.length];
+      
       this.fog.color.lerpColors(new THREE.Color(b1.fog), new THREE.Color(b2.fog), this.biomeTransition);
-      this.terrainMaterial.color.lerpColors(new THREE.Color(b1.ground), new THREE.Color(b2.ground), this.biomeTransition);
       this.renderer.setClearColor(new THREE.Color(b1.sky).lerp(new THREE.Color(b2.sky), this.biomeTransition));
-      if (this.biomeTransition >= 1) this.currentBiomeIndex = this.nextBiomeIndex;
+      
+      // Lerp Sun color and intensity
+      this.sun.color.lerpColors(new THREE.Color(b1.sunColor), new THREE.Color(b2.sunColor), this.biomeTransition);
+      this.sun.intensity = THREE.MathUtils.lerp(b1.sunIntensity, b2.sunIntensity, this.biomeTransition);
+      
+      if (this.biomeTransition >= 1) {
+          this.currentBiomeIndex = this.nextBiomeIndex;
+      }
     }
   }
 
