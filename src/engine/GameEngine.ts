@@ -27,7 +27,7 @@ export class GameEngine {
   private ship: ShipController;
   private stars: THREE.Group;
   private spaceObjects: THREE.Group = new THREE.Group();
-  private ambientLight: THREE.AmbientLight;
+  private ambientLight: THREE.AmbientLight = null!;
   private sun: THREE.DirectionalLight;
   private dayNightTime = Math.random(); // Start at random time of day
 
