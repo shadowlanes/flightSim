@@ -12,7 +12,7 @@ node_modules/
 .pnpm-store/
 
 # Build outputs
-# dist/
+dist/
 dist-ssr/
 *.local
 
