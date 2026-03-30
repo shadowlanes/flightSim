@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { CONFIG } from './constants';
+import { CONFIG, BIOMES } from './constants';
 import { Upgrades } from './PersistenceService';
 import { TerrainManager } from './TerrainManager';
 import { ShipController } from './ShipController';
@@ -25,7 +25,11 @@ export class GameEngine {
   private composer: EffectComposer;
   private terrain: TerrainManager;
   private ship: ShipController;
-  private stars: THREE.Points;
+  private stars: THREE.Group;
+  private spaceObjects: THREE.Group = new THREE.Group();
+  private ambientLight: THREE.AmbientLight;
+  private sun: THREE.DirectionalLight;
+  private dayNightTime = Math.random(); // Start at random time of day
 
   // Particles
   private particles: THREE.Points;
@@ -61,22 +65,23 @@ export class GameEngine {
     this.health = this.maxHealth;
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(this.renderer.domElement);
 
-    const fog = new THREE.FogExp2(0x000011, 0.002);
+    // Reduced fog density for better clarity with bloom
+    const fog = new THREE.FogExp2(0x000008, 0.0015);
     this.scene.fog = fog;
-    this.renderer.setClearColor(0x000005);
+    this.renderer.setClearColor(0x000002);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-    sun.position.set(200, 50, 100); 
-    sun.castShadow = true;
-    this.scene.add(sun);
+    this.sun = new THREE.DirectionalLight(0xffffff, 1.5);
+    this.sun.position.set(200, 50, 100); 
+    this.sun.castShadow = true;
+    this.scene.add(this.sun);
 
-    this.terrain = new TerrainManager(this.scene, this.renderer, fog, sun);
+    this.terrain = new TerrainManager(this.scene, fog, this.sun);
     this.terrain.onBiomeChange = (name) => this.onBiomeChange?.(name);
 
     this.ship = new ShipController(this.upgrades);
@@ -84,6 +89,9 @@ export class GameEngine {
 
     this.stars = this.createStars();
     this.scene.add(this.stars);
+
+    this.createSpaceObjects();
+    this.scene.add(this.spaceObjects);
 
     // Initialize Particles
     const pCount = 200;
@@ -117,18 +125,110 @@ export class GameEngine {
     window.addEventListener('resize', this.onResize.bind(this));
   }
 
-  private createStars(): THREE.Points {
-    const geo = new THREE.BufferGeometry();
-    const vertices = [];
-    for (let i = 0; i < 5000; i++) {
-      vertices.push((Math.random() - 0.5) * 2000, (Math.random() - 0.5) * 2000, (Math.random() - 0.5) * 2000);
+  private createStars(): THREE.Group {
+    const group = new THREE.Group();
+    // Randomized density: 3000 to 8000 stars
+    const starCount = 3000 + Math.floor(Math.random() * 5000);
+    
+    // Create organic focal points (clumps)
+    const clumps = Array.from({ length: 6 }, () => ({
+        theta: Math.random() * Math.PI * 2,
+        phi: Math.acos(2 * Math.random() - 1),
+        spread: 0.3 + Math.random() * 0.5
+    }));
+
+    const layers = [
+      { size: 1.2, color: 0xffffff, ratio: 0.6 }, // Tiny (was 0.7)
+      { size: 2.2, color: 0xeeeeee, ratio: 0.3 }, // Small (was 1.3)
+      { size: 3.8, color: 0xfafafa, ratio: 0.1 }  // Large/Bright (was 2.2)
+    ];
+
+    layers.forEach(layer => {
+      const geo = new THREE.BufferGeometry();
+      const vertices = [];
+      const count = Math.floor(starCount * layer.ratio);
+
+      for (let i = 0; i < count; i++) {
+        let theta, phi;
+
+        // 45% chance to cluster around a focal point for organic feel
+        if (Math.random() < 0.45) {
+          const clump = clumps[Math.floor(Math.random() * clumps.length)];
+          theta = clump.theta + (Math.random() - 0.5) * clump.spread;
+          phi = clump.phi + (Math.random() - 0.5) * clump.spread;
+        } else {
+          theta = Math.random() * Math.PI * 2;
+          phi = Math.acos(2 * Math.random() - 1);
+        }
+
+        const r = 850 + Math.random() * 350; // Closer for fog visibility
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta);
+        const z = r * Math.cos(phi);
+
+        // Keep stars above the terrain horizon
+        if (y > -40) {
+          vertices.push(x, y, z);
+        }
+      }
+
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      const mat = new THREE.PointsMaterial({ 
+        color: layer.color, 
+        size: layer.size, 
+        transparent: true, 
+        opacity: 0.9,
+        sizeAttenuation: true
+      });
+      group.add(new THREE.Points(geo, mat));
+    });
+
+    return group;
+  }
+
+  private createSpaceObjects() {
+    const count = 2 + Math.floor(Math.random() * 3); // 2 to 4 planets/moons
+    for (let i = 0; i < count; i++) {
+        const dist = 1200 + Math.random() * 500;
+        const angle = Math.random() * Math.PI * 2;
+        const height = 200 + Math.random() * 600;
+        
+        const size = 40 + Math.random() * 100;
+        const geo = new THREE.IcosahedronGeometry(size, 1);
+        
+        // Brighter, more vibrant alien colors (higher saturation and lightness)
+        const color = new THREE.Color().setHSL(Math.random(), 0.7, 0.7);
+        const mat = new THREE.MeshStandardMaterial({ 
+            color: color, 
+            flatShading: true,
+            emissive: color,
+            emissiveIntensity: 0.4 // Increased glow
+        });
+        
+        const planet = new THREE.Mesh(geo, mat);
+        planet.position.set(
+            Math.cos(angle) * dist,
+            height,
+            Math.sin(angle) * dist
+        );
+        
+        // Random initial rotation
+        planet.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+        
+        // Add custom rotation speed property
+        (planet as any).userData.rotSpeed = {
+            x: (Math.random() - 0.5) * 0.002,
+            y: (Math.random() - 0.5) * 0.002,
+            z: (Math.random() - 0.5) * 0.002
+        };
+        
+        this.spaceObjects.add(planet);
     }
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    return new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.7 }));
   }
 
   private setupLighting() {
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    this.scene.add(this.ambientLight);
   }
 
   private triggerFuelEffect(pos: THREE.Vector3) {
@@ -218,6 +318,61 @@ export class GameEngine {
     if (this.isGameOver) {
       this.composer.render();
       return;
+    }
+
+    // Day/Night Cycle Logic
+    if (CONFIG.day_night_cycle) {
+      this.dayNightTime = (this.dayNightTime + CONFIG.dayNightSpeed) % 1.0;
+      const angle = this.dayNightTime * Math.PI * 2;
+      
+      // Sun position arc
+      const sunDist = 1000;
+      this.sun.position.set(
+        Math.cos(angle) * sunDist,
+        Math.sin(angle) * sunDist,
+        200 // Slight offset
+      );
+
+      // Sun height factor (0 at horizon, 1 at peak, -1 at midnight)
+      const sunHeight = Math.sin(angle);
+      const dayFactor = THREE.MathUtils.clamp(sunHeight * 2, 0, 1); // Sharper transition at horizon
+      
+      // Adjust Ambient Light
+      this.ambientLight.intensity = 0.1 + (dayFactor * 0.4);
+      
+      // Adjust Sun Intensity (fades as it sets)
+      this.sun.intensity = Math.max(0.1, dayFactor * 1.5);
+
+      // Adjust Sky Color (Clear Color)
+      // Transition from deep space black/blue to a warmer sunset/dawn to a brighter day sky
+      const nightSky = new THREE.Color(0x000002);
+      const horizonSky = new THREE.Color(0x1a0800); // Warm orange/brown tint
+      const daySky = new THREE.Color(0x0a1a33); // Darker blue-ish for alien feel
+      
+      let currentSky;
+      if (sunHeight > 0.1) {
+        currentSky = new THREE.Color().copy(horizonSky).lerp(daySky, (sunHeight - 0.1) * 2);
+      } else if (sunHeight > -0.1) {
+        currentSky = new THREE.Color().copy(nightSky).lerp(horizonSky, (sunHeight + 0.1) * 5);
+      } else {
+        currentSky = new THREE.Color().copy(nightSky);
+      }
+      this.renderer.setClearColor(currentSky);
+
+      // Tint Fog based on day/night
+      const baseFogColor = this.scene.fog instanceof THREE.FogExp2 ? this.scene.fog.color : new THREE.Color(0x000008);
+      const nightFog = new THREE.Color(0x000005); // Very dark blue/black
+      const tintedFog = new THREE.Color().copy(nightFog).lerp(baseFogColor, 0.2 + (dayFactor * 0.8));
+      if (this.scene.fog instanceof THREE.FogExp2) {
+        this.scene.fog.color.copy(tintedFog);
+      }
+
+      // Stars Opacity (faint during day)
+      const starOpacity = 1.0 - (dayFactor * 0.9); 
+      this.stars.children.forEach(layer => {
+        const mat = (layer as THREE.Points).material as THREE.PointsMaterial;
+        mat.opacity = starOpacity;
+      });
     }
 
     if (this.isCrashing) {
@@ -313,7 +468,19 @@ export class GameEngine {
     this.terrain.update(this.ship.group.position, this.scene, dist2D);
     this.checkCollisions();
     this.updateParticles();
+    
+    // Space objects and stars follow camera to stay "infinite"
     this.stars.position.copy(this.camera.position);
+    this.spaceObjects.position.copy(this.camera.position);
+
+    // Rotate space objects (planets/moons)
+    this.spaceObjects.children.forEach(obj => {
+        if (obj instanceof THREE.Mesh && obj.userData.rotSpeed) {
+            obj.rotation.x += obj.userData.rotSpeed.x;
+            obj.rotation.y += obj.userData.rotSpeed.y;
+            obj.rotation.z += obj.userData.rotSpeed.z;
+        }
+    });
 
     this.onUpdateStats?.({
       health: Math.round((this.health / this.maxHealth) * 100), fuel: this.fuel, points: Math.floor(this.points),

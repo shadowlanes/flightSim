@@ -5,18 +5,17 @@ export interface Biome {
   name: string;
   fog: number;
   ground: number;
-  sky: number;
   terrainType: 'FLAT' | 'HILLS' | 'MOUNTAINS' | 'GORGES';
   sunColor: number;
   sunIntensity: number;
 }
 
 export const BIOMES: Biome[] = [
-  { name: "AETHERIA", fog: 0x000011, ground: 0x00ffff, sky: 0x000005, terrainType: 'FLAT', sunColor: 0x00ffff, sunIntensity: 1.2 },
-  { name: "MARS PRIME", fog: 0x331100, ground: 0xff4400, sky: 0x110500, terrainType: 'MOUNTAINS', sunColor: 0xff4400, sunIntensity: 1.8 },
-  { name: "VERIDIA", fog: 0x002211, ground: 0x00ff88, sky: 0x001105, terrainType: 'HILLS', sunColor: 0x00ff88, sunIntensity: 1.0 },
-  { name: "NEON VOID", fog: 0x220044, ground: 0xff00ff, sky: 0x110022, terrainType: 'GORGES', sunColor: 0xff00ff, sunIntensity: 0.8 },
-  { name: "FROST REACH", fog: 0x112233, ground: 0xffffff, sky: 0x051122, terrainType: 'HILLS', sunColor: 0xffffff, sunIntensity: 1.4 }
+  { name: "AETHERIA", fog: 0x000008, ground: 0x00aaaa, terrainType: 'FLAT', sunColor: 0x00ffff, sunIntensity: 0.8 },
+  { name: "MARS PRIME", fog: 0x1a0800, ground: 0xcc3300, terrainType: 'MOUNTAINS', sunColor: 0xff6600, sunIntensity: 1.2 },
+  { name: "VERIDIA", fog: 0x000a05, ground: 0x00aa44, terrainType: 'HILLS', sunColor: 0x00ff88, sunIntensity: 0.7 },
+  { name: "NEON VOID", fog: 0x0a001a, ground: 0xaa00aa, terrainType: 'GORGES', sunColor: 0xff00ff, sunIntensity: 0.6 },
+  { name: "FROST REACH", fog: 0x080a10, ground: 0xaaaaaa, terrainType: 'HILLS', sunColor: 0xccccff, sunIntensity: 0.9 }
 ];
 
 const PREFIXES = ["NEO", "ALPHA", "CYBER", "VOID", "AERO", "TERRA", "XENON"];

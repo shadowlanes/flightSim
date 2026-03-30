@@ -14,5 +14,7 @@
   "maxYaw": 1.2,
   "maxRoll": 0.8,
   "cameraLerp": 0.1,
-  "gravity": 0.15
+  "gravity": 0.15,
+  "day_night_cycle": false,
+  "dayNightSpeed": 0.0005
 }

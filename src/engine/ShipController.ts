@@ -5,8 +5,10 @@ import { Upgrades } from './PersistenceService';
 export class ShipController {
   public group: THREE.Group;
   public currentSpeed: number = CONFIG.cruiseSpeed;
+  // public pitchVelocity: number = 0;
   private glowMat: THREE.MeshPhongMaterial;
   private keys: Record<string, boolean> = {};
+  // private lastPitchInput: number = 0;
 
   constructor(upgrades: Upgrades) {
     this.glowMat = new THREE.MeshPhongMaterial({ 
@@ -137,6 +139,16 @@ export class ShipController {
   public update(biomeMultiplier: number) {
     // Pitch: W (pull up) = -1, S (push down) = 1
     const pIn = (this.keys.w || this.keys.ArrowUp) ? -1 : (this.keys.s || this.keys.ArrowDown) ? 1 : 0;
+    
+    // // Track pitch velocity (rate of change of pitch input)
+    // // If input changed from 0 to -1 or 1, that's a sharp move
+    // if (pIn !== this.lastPitchInput && pIn !== 0) {
+    //   this.pitchVelocity = 0.5; // Trigger effect
+    // } else {
+    //   this.pitchVelocity = THREE.MathUtils.lerp(this.pitchVelocity, 0, 0.1);
+    // }
+    // this.lastPitchInput = pIn;
+
     // Roll: A (roll left) = 1, D (roll right) = -1
     const rIn = (this.keys.a || this.keys.ArrowLeft) ? 1 : (this.keys.d || this.keys.ArrowRight) ? -1 : 0;
     // Rudder (Yaw): Q (yaw left) = 1, E (yaw right) = -1

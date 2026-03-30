@@ -19,19 +19,30 @@ export class TerrainManager {
   
   private currentBiomeIndex = 0;
   private nextBiomeIndex = 0;
+  private biomeOffset = Math.floor(Math.random() * BIOMES.length);
   private biomeTransition = 1;
   private fog: THREE.FogExp2;
-  private renderer: THREE.WebGLRenderer;
   private sun: THREE.DirectionalLight;
 
   public onBiomeChange?: (name: string) => void;
 
-  constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, fog: THREE.FogExp2, sun: THREE.DirectionalLight) {
-    this.renderer = renderer;
+  constructor(scene: THREE.Scene, fog: THREE.FogExp2, sun: THREE.DirectionalLight) {
     this.fog = fog;
     this.sun = sun;
+    
+    // Initial biome setup based on offset
+    this.currentBiomeIndex = 0; 
+    this.nextBiomeIndex = 0;
+    const initialBiome = BIOMES[this.biomeOffset % BIOMES.length];
+
+    // Initialize fog and sun to match starting biome
+    this.fog.color.set(initialBiome.fog);
+    this.sun.color.set(initialBiome.sunColor);
+    this.sun.intensity = initialBiome.sunIntensity;
+
+    const initialTerrainColor = new THREE.Color().setHSL(Math.random(), 0.7, 0.5);
     this.terrainMaterial = new THREE.MeshStandardMaterial({
-      color: 0xff4400, // Mars Red
+      color: initialTerrainColor,
       flatShading: true,
       roughness: 0.8,
       metalness: 0.2
@@ -65,7 +76,7 @@ export class TerrainManager {
 
   public getHeight(x: number, z: number) {
     const dist = Math.sqrt(x * x + z * z);
-    const biomeIdx = Math.floor(dist / CONFIG.biomeDist);
+    const biomeIdx = Math.floor(dist / CONFIG.biomeDist) + this.biomeOffset;
     const nextBiomeIdx = biomeIdx + 1;
     const transition = (dist % CONFIG.biomeDist) / CONFIG.biomeDist;
 
@@ -199,11 +210,10 @@ export class TerrainManager {
 
     if (this.biomeTransition < 1) {
       this.biomeTransition += 0.005;
-      const b1 = BIOMES[this.currentBiomeIndex % BIOMES.length];
-      const b2 = BIOMES[this.nextBiomeIndex % BIOMES.length];
+      const b1 = BIOMES[(this.currentBiomeIndex + this.biomeOffset) % BIOMES.length];
+      const b2 = BIOMES[(this.nextBiomeIndex + this.biomeOffset) % BIOMES.length];
       
       this.fog.color.lerpColors(new THREE.Color(b1.fog), new THREE.Color(b2.fog), this.biomeTransition);
-      this.renderer.setClearColor(new THREE.Color(b1.sky).lerp(new THREE.Color(b2.sky), this.biomeTransition));
       
       // Lerp Sun color and intensity
       this.sun.color.lerpColors(new THREE.Color(b1.sunColor), new THREE.Color(b2.sunColor), this.biomeTransition);
