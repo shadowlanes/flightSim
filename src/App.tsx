@@ -34,7 +34,8 @@ const App: React.FC = () => {
     alt: 0, 
     dist: 0, 
     warning: '',
-    isCrashing: false 
+    isCrashing: false,
+    statusMessage: ''
   });
   const [discovery, setDiscovery] = useState<{ name: string; visible: boolean }>({ name: '', visible: false });
   const [gameOverReason, setGameOverReason] = useState('');
@@ -217,7 +218,7 @@ const App: React.FC = () => {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
               <div style={{ ...shopCardStyle, width: '100%', boxSizing: 'border-box' }}>
-                <h3 style={{ margin: '0 0 8px' }}>FUEL EFFICIENCY</h3>
+                <h3 style={{ margin: '0 0 8px' }}>PLASMA EFFICIENCY</h3>
                 <p style={{ margin: '0 0 12px' }}>Lvl {user.upgrades.fuelEfficiency} / 5</p>
                 {user.upgrades.fuelEfficiency < 5 ? (
                   <button onClick={() => buyUpgrade('fuelEfficiency')} style={shopButtonStyle}>
@@ -291,9 +292,9 @@ const App: React.FC = () => {
                  </div>
               </div>
               <div>
-                 <div style={{ fontSize: '0.8em', color: '#888' }}>FUEL RESERVE</div>
-                 <div style={{ width: '200px', height: '10px', background: '#002222', border: '1px solid #ffcc00', marginTop: '4px' }}>
-                    <div style={{ width: `${stats.fuel}%`, height: '100%', background: '#ffcc00', transition: 'width 0.1s' }} />
+                 <div style={{ fontSize: '0.8em', color: '#888' }}>PLASMA RESERVE</div>
+                 <div style={{ width: '200px', height: '10px', background: '#001a33', border: '1px solid #66ccff', marginTop: '4px' }}>
+                    <div style={{ width: `${stats.fuel}%`, height: '100%', background: '#66ccff', transition: 'width 0.1s' }} />
                  </div>
               </div>
             </div>
@@ -302,6 +303,18 @@ const App: React.FC = () => {
             <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '1.2em', fontWeight: 'bold' }}>PILOT: {user.username}</div>
                 <div style={{ fontSize: '0.7em', color: '#888' }}>STATUS: MISSION ACTIVE</div>
+                {stats.statusMessage && (
+                  <div style={{
+                    fontSize: '0.9em',
+                    fontWeight: 'bold',
+                    color: '#66ccff',
+                    textShadow: '0 0 8px #66ccff, 0 0 16px #66ccff',
+                    marginTop: '6px',
+                    animation: 'statusPop 0.3s ease-out',
+                  }}>
+                    {stats.statusMessage}
+                  </div>
+                )}
             </div>
 
             {/* Right Stats */}
@@ -345,6 +358,11 @@ const App: React.FC = () => {
                     @keyframes crashFlash {
                         from { opacity: 0; }
                         to { opacity: 1; }
+                    }
+                    @keyframes statusPop {
+                        0% { opacity: 0; transform: translateY(8px) scale(0.8); }
+                        60% { opacity: 1; transform: translateY(-2px) scale(1.05); }
+                        100% { opacity: 1; transform: translateY(0) scale(1); }
                     }
                 `}</style>
             </div>

@@ -6,6 +6,7 @@ import { CONFIG } from './constants';
 import { Upgrades } from './PersistenceService';
 import { TerrainManager } from './TerrainManager';
 import { ShipController } from './ShipController';
+import { PlasmaRechargerManager } from './PlasmaRecharger';
 
 export interface GameStats {
   health: number;
@@ -16,6 +17,7 @@ export interface GameStats {
   dist: number;
   warning: string;
   isCrashing: boolean;
+  statusMessage: string;
 }
 
 export class GameEngine {
@@ -30,6 +32,10 @@ export class GameEngine {
   private stars: THREE.Group;
   private spaceObjects: THREE.Group = new THREE.Group();
   private sun: THREE.DirectionalLight;
+  private plasmaManager: PlasmaRechargerManager;
+
+  // Ship glow materials cache for plasma charge effect
+  private shipOriginalMaterials: Map<THREE.Mesh, THREE.Material> = new Map();
 
   // Particles
   private particles: THREE.Points;
@@ -58,6 +64,10 @@ export class GameEngine {
   // Altitude Guardrails
   private altWarning = "";
   private altGameOverTimer = 0;
+
+  // Status message (e.g. "+35 PLASMA")
+  private statusMessage = "";
+  private statusMessageTimer = 0;
 
   // Smoothed delta time to prevent jitter from chunk generation
   private smoothedDt = 1 / 60;
@@ -102,6 +112,11 @@ export class GameEngine {
 
     this.terrain = new TerrainManager(this.scene, fog, this.sun);
     this.terrain.onBiomeChange = (name) => this.onBiomeChange?.(name);
+
+    this.plasmaManager = new PlasmaRechargerManager(
+      this.scene,
+      (x, z) => this.terrain.getHeight(x, z)
+    );
 
     this.ship = new ShipController(this.upgrades);
     this.scene.add(this.ship.group);
@@ -182,7 +197,7 @@ export class GameEngine {
   private createStars(): THREE.Group {
     const group = new THREE.Group();
     // Randomized density: 2000 to 6000 stars
-    const starCount = 2000 + Math.floor(Math.random() * 4000);
+    const starCount = 1000 + Math.floor(Math.random() * 3000);
     
     // Create organic focal points (clumps)
     const clumps = Array.from({ length: 6 }, () => ({
@@ -241,7 +256,7 @@ export class GameEngine {
   }
 
   private createSpaceObjects() {
-    const count = 2 + Math.floor(Math.random() * 3); // 2 to 4 planets/moons
+    const count = 1 + Math.floor(Math.random() * 5); // 2 to 4 planets/moons
     for (let i = 0; i < count; i++) {
         const dist = 1200 + Math.random() * 500;
         const angle = Math.random() * Math.PI * 2;
@@ -301,6 +316,37 @@ export class GameEngine {
             this.particlePositions[i*3+2] = pos.z + Math.sin(angle) * dist;
             activated++;
         }
+    }
+  }
+
+  private updateShipGlow() {
+    const glowTimer = this.plasmaManager.shipGlowTimer;
+    if (glowTimer > 0) {
+      // Cache original materials on first glow frame
+      if (this.shipOriginalMaterials.size === 0) {
+        this.ship.group.traverse(obj => {
+          if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+            this.shipOriginalMaterials.set(obj, obj.material.clone());
+          }
+        });
+      }
+      // Pulse emissive on all ship meshes
+      const intensity = glowTimer * 2.0; // fades out
+      this.ship.group.traverse(obj => {
+        if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+          obj.material.emissive = new THREE.Color(0x66ccff);
+          obj.material.emissiveIntensity = intensity;
+        }
+      });
+    } else if (this.shipOriginalMaterials.size > 0) {
+      // Restore original materials
+      this.shipOriginalMaterials.forEach((origMat, mesh) => {
+        if (mesh.material instanceof THREE.MeshStandardMaterial) {
+          mesh.material.emissive = (origMat as THREE.MeshStandardMaterial).emissive;
+          mesh.material.emissiveIntensity = (origMat as THREE.MeshStandardMaterial).emissiveIntensity;
+        }
+      });
+      this.shipOriginalMaterials.clear();
     }
   }
 
@@ -376,17 +422,6 @@ export class GameEngine {
   private checkCollisions() {
     const terrainHeight = this.terrain.getHeight(this.ship.group.position.x, this.ship.group.position.z) - 50;
     if (this.ship.group.position.y < terrainHeight + 1) this.triggerDeath("CRASHED INTO TERRAIN");
-
-    const worldPos = new THREE.Vector3();
-    for (const cell of this.terrain.fuelCells) {
-      cell.getWorldPosition(worldPos);
-      if (this.ship.group.position.distanceTo(worldPos) < 6) {
-        this.fuel = Math.min(CONFIG.maxFuel, this.fuel + CONFIG.fuelReplenish);
-        this.points += 500; 
-        this.triggerFuelEffect(worldPos);
-        cell.visible = false;
-      }
-    }
   }
 
   private triggerDeath(reason: string) {
@@ -476,7 +511,7 @@ export class GameEngine {
         if (this.altGameOverTimer >= 3) this.triggerDeath("LOST IN UPPER ATMOSPHERE");
     } else if (alt >= 120) {
         currentFuelDrain *= 4;
-        this.altWarning = "WARNING: HIGH ALTITUDE - FUEL DRAIN INCREASED";
+        this.altWarning = "WARNING: HIGH ALTITUDE - PLASMA DRAIN INCREASED";
         this.altGameOverTimer = 0;
     } else {
         this.altGameOverTimer = 0;
@@ -484,7 +519,7 @@ export class GameEngine {
 
     if (!this.isCrashing) {
         this.fuel -= currentFuelDrain * dtScale;
-        if (this.fuel <= 0) this.triggerDeath("FUEL EXHAUSTED");
+        if (this.fuel <= 0) this.triggerDeath("PLASMA DEPLETED");
 
         this.ship.update(dtScale);
 
@@ -492,7 +527,7 @@ export class GameEngine {
         const motionIntensity = this.ship.motionIntensity;
 
         // Trigger shake only at high speed (above midpoint between cruise and max)
-        const shakeSpeedThreshold = (CONFIG.cruiseSpeed + CONFIG.maxSpeed) / 2.5;
+        const shakeSpeedThreshold = (CONFIG.cruiseSpeed + CONFIG.maxSpeed) / 2;
         if (motionIntensity > 0.4 && this.shakeTimer < 0.2 && this.ship.currentSpeed > shakeSpeedThreshold) {
           this.shakeTimer = Math.max(this.shakeTimer, motionIntensity * 0.5);
         }
@@ -500,6 +535,10 @@ export class GameEngine {
         // Update bloom intensity based on speed
         const speedRatio = (this.ship.currentSpeed - CONFIG.minSpeed) / (CONFIG.maxSpeed - CONFIG.minSpeed);
         this.bloomPass.strength = 0.8 + (speedRatio * 0.6); // 0.8 to 1.4
+
+        // Dynamic FOV - increases at high speed for sensation of speed
+        this.camera.fov = 75 + (speedRatio * 15); // 75° to 90°
+        this.camera.updateProjectionMatrix();
 
         // Update speed lines
         this.updateSpeedLines(motionIntensity);
@@ -528,10 +567,29 @@ export class GameEngine {
 
     this.camera.lookAt(CONFIG.cameraLookAtOffset.clone().applyQuaternion(this.ship.group.quaternion).add(this.ship.group.position));
 
-    this.terrain.fuelCells.forEach(f => {
-        f.rotation.y += 0.03 * dtScale;
-        f.position.y += Math.sin(Date.now() * 0.003) * 0.05;
-    });
+    // Plasma recharger system
+    const plasmaResult = this.plasmaManager.update(
+      this.ship.group.position,
+      this.ship.group.quaternion,
+      this.fuel,
+      dt
+    );
+    if (plasmaResult.fuel > 0) {
+      this.fuel = Math.min(CONFIG.maxFuel, this.fuel + plasmaResult.fuel);
+      this.points += plasmaResult.points;
+      this.triggerFuelEffect(this.ship.group.position.clone());
+      this.statusMessage = `+${Math.round(plasmaResult.fuel)} PLASMA`;
+      this.statusMessageTimer = 2.0;
+    }
+
+    // Decay status message
+    if (this.statusMessageTimer > 0) {
+      this.statusMessageTimer -= dt;
+      if (this.statusMessageTimer <= 0) this.statusMessage = "";
+    }
+
+    // Ship glow effect when plasma charge received
+    this.updateShipGlow();
 
     this.terrain.update(this.ship.group.position, this.scene, dist2D);
     this.checkCollisions();
@@ -557,7 +615,8 @@ export class GameEngine {
       alt: Math.round(alt),
       dist: Math.round(distTotal),
       warning: this.altWarning,
-      isCrashing: this.isCrashing
+      isCrashing: this.isCrashing,
+      statusMessage: this.statusMessage
     });
 
     this.composer.render();

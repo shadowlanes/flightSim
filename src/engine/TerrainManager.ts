@@ -33,7 +33,7 @@ export class TerrainManager {
   private terrainChunks: Map<string, THREE.Group> = new Map();
   private terrainMaterial: THREE.MeshStandardMaterial;
 
-  public fuelCells: THREE.Group[] = [];
+  public fuelCells: THREE.Group[] = []; // deprecated — kept for compatibility, no longer spawned
 
   // Crater storage: chunk key -> array of craters
   private craters: Map<string, Crater[]> = new Map();
@@ -210,41 +210,6 @@ export class TerrainManager {
     const mesh = new THREE.Mesh(geo, this.terrainMaterial);
     mesh.receiveShadow = true;
     group.add(mesh);
-
-    // Fuel Cells
-    const fuelCount = CONFIG.fuelCanCount;
-
-    for(let i = 0; i < fuelCount; i++) {
-      const rx = (Math.random() - 0.5) * CONFIG.chunkSize;
-      const rz = (Math.random() - 0.5) * CONFIG.chunkSize;
-      const ry = 5 + Math.random() * 25;
-      const fuelGroup = new THREE.Group();
-      const core = new THREE.Mesh(
-        new THREE.SphereGeometry(1.2, 16, 16),
-        new THREE.MeshStandardMaterial({
-          color: 0x00ffff,
-          emissive: 0x00aaaa,
-          emissiveIntensity: 1.5,
-          transparent: true,
-          opacity: 0.9,
-          roughness: 0.3,
-          metalness: 0.1
-        })
-      );
-      const glow = new THREE.Mesh(
-        new THREE.SphereGeometry(2.5, 16, 16),
-        new THREE.MeshBasicMaterial({
-          color: 0x00ffff,
-          transparent: true,
-          opacity: 0.2
-        })
-      );
-      fuelGroup.add(core);
-      fuelGroup.add(glow);
-      fuelGroup.position.set(rx, ry, rz);
-      group.add(fuelGroup);
-      this.fuelCells.push(fuelGroup);
-    }
 
     // Rocks (only in FLAT and HILLS biomes)
     const chunkCenterX = cx * CONFIG.chunkSize;
