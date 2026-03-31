@@ -1,12 +1,22 @@
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
-import { CONFIG, BIOMES, getRandomPlanetName, Biome } from './constants';
+import { CONFIG, BIOMES } from './constants';
 
 const TERRAIN_PARAMS = {
   'FLAT': { freq: 0.002, amp: 15, power: 1, octaves: 2, ridged: false },
   'HILLS': { freq: 0.004, amp: 45, power: 1.5, octaves: 3, ridged: false },
   'MOUNTAINS': { freq: 0.006, amp: 110, power: 2.2, octaves: 4, ridged: true },
   'GORGES': { freq: 0.005, amp: 130, power: 0.6, octaves: 3, ridged: false }
+};
+
+// Biome flat colors
+const BIOME_COLORS: Record<string, number> = {
+  'Desert Dunes':   0xe8d4a0,
+  'Emerald Valley': 0x4a7c2b,
+  'Frozen Peaks':   0xd4e4f0,
+  'Volcanic Wastes':0x3a2222,
+  'Purple Haze':    0x7a5c9e,
+  'Coral Reef':     0x5c9e9e,
 };
 
 export class TerrainManager {
@@ -23,15 +33,16 @@ export class TerrainManager {
   private biomeTransition = 1;
   private fog: THREE.FogExp2;
   private sun: THREE.DirectionalLight;
+  private currentPaletteName: string;
 
   public onBiomeChange?: (name: string) => void;
 
   constructor(scene: THREE.Scene, fog: THREE.FogExp2, sun: THREE.DirectionalLight) {
     this.fog = fog;
     this.sun = sun;
-    
+
     // Initial biome setup based on offset
-    this.currentBiomeIndex = 0; 
+    this.currentBiomeIndex = 0;
     this.nextBiomeIndex = 0;
     const initialBiome = BIOMES[this.biomeOffset % BIOMES.length];
 
@@ -40,12 +51,14 @@ export class TerrainManager {
     this.sun.color.set(initialBiome.sunColor);
     this.sun.intensity = initialBiome.sunIntensity;
 
-    const initialTerrainColor = new THREE.Color().setHSL(Math.random(), 0.7, 0.5);
+    // Set initial palette
+    this.currentPaletteName = initialBiome.name;
+
     this.terrainMaterial = new THREE.MeshStandardMaterial({
-      color: initialTerrainColor,
+      color: 0x4a7c2b,
       flatShading: true,
-      roughness: 0.8,
-      metalness: 0.2
+      roughness: 0.95,
+      metalness: 0.0
     });
   }
 
@@ -115,10 +128,10 @@ export class TerrainManager {
     const size = CONFIG.chunkSize;
     const geo = new THREE.PlaneGeometry(size, size, res, res);
     geo.rotateX(-Math.PI / 2);
-    
-    const pos = geo.attributes.position;
-    const vertexCount = (res + 1) * (res + 1);
 
+    const pos = geo.attributes.position;
+
+    // Set vertex heights
     for (let i = 0; i <= res; i++) {
       for (let j = 0; j <= res; j++) {
         const px = (j / res - 0.5) * size + cx * size;
@@ -127,9 +140,15 @@ export class TerrainManager {
         pos.setY(idx, this.getHeight(px, pz));
       }
     }
-    
+
     geo.computeVertexNormals();
+
+    // Set flat biome color on material
+    const flatColor = BIOME_COLORS[this.currentPaletteName] ?? 0x4a7c2b;
+    this.terrainMaterial.color.set(flatColor);
+
     const mesh = new THREE.Mesh(geo, this.terrainMaterial);
+    mesh.receiveShadow = true;
     group.add(mesh);
 
     // Asteroids
@@ -138,24 +157,49 @@ export class TerrainManager {
       const rz = (Math.random() - 0.5) * CONFIG.chunkSize;
       const ry = 10 + Math.random() * 40;
       const astGeo = new THREE.DodecahedronGeometry(2 + Math.random() * 5, 0);
-      const ast = new THREE.Mesh(astGeo, new THREE.MeshPhongMaterial({ color: 0x444444, flatShading: true }));
+      const ast = new THREE.Mesh(astGeo, new THREE.MeshStandardMaterial({
+        color: 0x444444,
+        flatShading: true,
+        roughness: 0.9,
+        metalness: 0.1
+      }));
       ast.position.set(rx, ry, rz);
+      ast.castShadow = true;
+      ast.receiveShadow = true;
       group.add(ast);
       this.obstacles.push(ast);
     }
 
     // Fuel Cells
-    const dist = Math.abs(cz * CONFIG.chunkSize);
-    const densityScale = Math.max(0.2, 1 - (dist / 10000));
-    const fuelCount = Math.floor(CONFIG.fuelCanCount * densityScale);
+    const fuelCount = CONFIG.fuelCanCount;
 
     for(let i = 0; i < fuelCount; i++) {
       const rx = (Math.random() - 0.5) * CONFIG.chunkSize;
       const rz = (Math.random() - 0.5) * CONFIG.chunkSize;
       const ry = 5 + Math.random() * 25;
       const fuelGroup = new THREE.Group();
-      fuelGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), new THREE.MeshPhongMaterial({ color: 0x00ffff, emissive: 0x00aaaa, transparent: true, opacity: 0.9 })));
-      fuelGroup.add(new THREE.Mesh(new THREE.SphereGeometry(2.5, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.2 })));
+      const core = new THREE.Mesh(
+        new THREE.SphereGeometry(1.2, 16, 16),
+        new THREE.MeshStandardMaterial({
+          color: 0x00ffff,
+          emissive: 0x00aaaa,
+          emissiveIntensity: 1.5,
+          transparent: true,
+          opacity: 0.9,
+          roughness: 0.3,
+          metalness: 0.1
+        })
+      );
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(2.5, 16, 16),
+        new THREE.MeshBasicMaterial({
+          color: 0x00ffff,
+          transparent: true,
+          opacity: 0.2
+        })
+      );
+      fuelGroup.add(core);
+      fuelGroup.add(glow);
       fuelGroup.position.set(rx, ry, rz);
       group.add(fuelGroup);
       this.fuelCells.push(fuelGroup);
@@ -201,31 +245,28 @@ export class TerrainManager {
     if (targetIdx !== this.nextBiomeIndex) {
       this.nextBiomeIndex = targetIdx;
       this.biomeTransition = 0;
-      this.onBiomeChange?.(getRandomPlanetName());
-      
-      // Randomize terrain color on biome change
-      const randomColor = new THREE.Color().setHSL(Math.random(), 0.7, 0.5);
-      this.terrainMaterial.color.copy(randomColor);
+
+      // Get new biome and update palette
+      const newBiome = BIOMES[(this.nextBiomeIndex + this.biomeOffset) % BIOMES.length];
+      this.currentPaletteName = newBiome.name;
+      this.onBiomeChange?.(newBiome.name);
     }
 
     if (this.biomeTransition < 1) {
       this.biomeTransition += 0.005;
       const b1 = BIOMES[(this.currentBiomeIndex + this.biomeOffset) % BIOMES.length];
       const b2 = BIOMES[(this.nextBiomeIndex + this.biomeOffset) % BIOMES.length];
-      
+
       this.fog.color.lerpColors(new THREE.Color(b1.fog), new THREE.Color(b2.fog), this.biomeTransition);
-      
+
       // Lerp Sun color and intensity
       this.sun.color.lerpColors(new THREE.Color(b1.sunColor), new THREE.Color(b2.sunColor), this.biomeTransition);
       this.sun.intensity = THREE.MathUtils.lerp(b1.sunIntensity, b2.sunIntensity, this.biomeTransition);
-      
+
       if (this.biomeTransition >= 1) {
           this.currentBiomeIndex = this.nextBiomeIndex;
       }
     }
   }
 
-  public getSpeedMultiplier() {
-    return 1 + (this.nextBiomeIndex * (CONFIG.speedIncrementPerBiome / CONFIG.baseForwardSpeed));
-  }
 }

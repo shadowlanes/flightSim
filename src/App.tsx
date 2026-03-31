@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GameEngine, GameStats } from './engine/GameEngine';
 import { PersistenceService, UserData, Upgrades } from './engine/PersistenceService';
+import { ShipPreview } from './components/ShipPreview';
+import { MusicManager } from './engine/MusicManager';
 
 const SKIN_OPTIONS = [
   { name: 'Classic Grey', color: '#888888' },
@@ -15,6 +17,7 @@ const UPGRADE_COSTS = [0, 5000, 15000, 30000, 60000, 100000];
 const App: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
+  const musicRef = useRef<MusicManager | null>(null);
   
   const [user, setUser] = useState<UserData | null>(PersistenceService.getCurrentUser());
   const [usernameInput, setUsernameInput] = useState('');
@@ -88,6 +91,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (gameState !== 'playing' || !containerRef.current || !user) return;
 
+    const music = new MusicManager();
+    musicRef.current = music;
+    music.start();
+
     const engine = new GameEngine(containerRef.current, user.upgrades);
     engineRef.current = engine;
 
@@ -125,6 +132,8 @@ const App: React.FC = () => {
 
     return () => {
       cancelAnimationFrame(animationId);
+      musicRef.current?.stop();
+      musicRef.current = null;
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
       }
@@ -186,12 +195,18 @@ const App: React.FC = () => {
         <div style={{
           position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
           backgroundColor: 'rgba(0, 5, 5, 0.95)', display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center', color: '#fff', zIndex: 100, overflowY: 'auto', padding: '40px'
+          alignItems: 'center', color: '#fff', zIndex: 100, overflowY: 'auto', padding: '40px'
         }}>
           <h1 style={{ fontSize: '3em', color: '#0ff', marginBottom: '10px' }}>SHIP HANGAR</h1>
-          <p style={{ fontSize: '1.5em', color: '#ffcc00' }}>AVAILABLE CREDITS: {user.totalPoints.toLocaleString()}</p>
-          
-          <div style={{ display: 'flex', gap: '40px', marginTop: '30px', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <p style={{ fontSize: '1.5em', color: '#ffcc00', marginBottom: '30px' }}>AVAILABLE CREDITS: {user.totalPoints.toLocaleString()}</p>
+
+          {/* Ship Preview Section */}
+          <div style={{ marginBottom: '40px' }}>
+            <ShipPreview skinColor={user.upgrades.skin} width={500} height={350} />
+          </div>
+
+          {/* Upgrades and Customization Grid */}
+          <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '1200px' }}>
             {/* Upgrades */}
             <div style={shopCardStyle}>
               <h3>FUEL EFFICIENCY</h3>
@@ -216,15 +231,20 @@ const App: React.FC = () => {
             {/* Skins */}
             <div style={{ ...shopCardStyle, width: '400px' }}>
               <h3>SHIP PAINT JOB</h3>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center', marginTop: '10px' }}>
+              <p style={{ fontSize: '0.9em', color: '#888', marginBottom: '15px' }}>
+                {SKIN_OPTIONS.find(s => s.color === user.upgrades.skin)?.name || 'Custom'}
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center' }}>
                 {SKIN_OPTIONS.map(skin => (
-                  <div 
+                  <div
                     key={skin.color}
                     onClick={() => changeSkin(skin.color)}
                     style={{
                       width: '60px', height: '60px', backgroundColor: skin.color,
                       border: user.upgrades.skin === skin.color ? '4px solid #fff' : '2px solid #555',
-                      cursor: 'pointer', borderRadius: '5px'
+                      cursor: 'pointer', borderRadius: '5px',
+                      transition: 'all 0.2s',
+                      boxShadow: user.upgrades.skin === skin.color ? '0 0 15px rgba(255,255,255,0.5)' : 'none'
                     }}
                     title={skin.name}
                   />

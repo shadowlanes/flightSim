@@ -1,8 +1,4 @@
 {
-  "baseForwardSpeed": 0.8,
-  "speedIncrementPerBiome": 0.2,
-  "rotationSpeed": 0.03,
-  "lerpFactor": 0.05,
   "biomeDist": 1000,
   "maxHealth": 100,
   "maxFuel": 100,
@@ -10,11 +6,8 @@
   "fuelReplenish": 35,
   "asteroidCount": 10,
   "fuelCanCount": 3,
-  "maxPitch": 0.8,
-  "maxYaw": 1.2,
-  "maxRoll": 0.8,
   "cameraLerp": 0.1,
-  "gravity": 0.15,
+  "gravity": 0.10,
   "day_night_cycle": false,
   "dayNightSpeed": 0.0005
 }
