@@ -16,6 +16,7 @@ export interface GameStats {
   dist: number;
   warning: string;
   isCrashing: boolean;
+  isPaused: boolean;
 }
 
 export class GameEngine {
@@ -45,6 +46,7 @@ export class GameEngine {
   private fuel = CONFIG.maxFuel;
   public points = 0;
   private isGameOver = false;
+  private isPaused = false;
   private isCrashing = false;
   private crashReason = "";
   private crashTimer = 0;
@@ -126,6 +128,9 @@ export class GameEngine {
     this.composer.addPass(bloomPass);
 
     window.addEventListener('resize', this.onResize.bind(this));
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.isPaused = !this.isPaused;
+    });
   }
 
   private createStars(): THREE.Group {
@@ -328,7 +333,16 @@ export class GameEngine {
     // Scale factor: 1.0 at 60fps, 0.5 at 120fps, 2.0 at 30fps
     const dtScale = dt * 60;
 
-    if (this.isGameOver) {
+    if (this.isGameOver || this.isPaused) {
+      this.onUpdateStats?.({
+        health: Math.round((this.health / this.maxHealth) * 100), fuel: this.fuel, points: Math.floor(this.points),
+        speed: Math.round(this.ship.currentSpeed * 3.6),
+        alt: Math.round(this.ship.group.position.y + CONFIG.altitudeYOffset),
+        dist: Math.round(this.ship.group.position.length()),
+        warning: this.altWarning,
+        isCrashing: this.isCrashing,
+        isPaused: this.isPaused
+      });
       this.composer.render();
       return;
     }
@@ -500,7 +514,8 @@ export class GameEngine {
       alt: Math.round(alt),
       dist: Math.round(distTotal),
       warning: this.altWarning,
-      isCrashing: this.isCrashing
+      isCrashing: this.isCrashing,
+      isPaused: false
     });
 
     this.composer.render();

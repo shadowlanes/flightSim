@@ -20,15 +20,16 @@ const App: React.FC = () => {
   const [usernameInput, setUsernameInput] = useState('');
   const [gameState, setGameState] = useState<'menu' | 'shop' | 'playing' | 'gameOver'>('menu');
   
-  const [stats, setStats] = useState<GameStats>({ 
-    health: 100, 
-    fuel: 100, 
-    points: 0, 
-    speed: 0, 
-    alt: 0, 
-    dist: 0, 
+  const [stats, setStats] = useState<GameStats>({
+    health: 100,
+    fuel: 100,
+    points: 0,
+    speed: 0,
+    alt: 0,
+    dist: 0,
     warning: '',
-    isCrashing: false 
+    isCrashing: false,
+    isPaused: false
   });
   const [discovery, setDiscovery] = useState<{ name: string; visible: boolean }>({ name: '', visible: false });
   const [gameOverReason, setGameOverReason] = useState('');
@@ -314,6 +315,51 @@ const App: React.FC = () => {
                 `}</style>
             </div>
           )}
+
+          {/* Pause Overlay */}
+          {stats.isPaused && (
+            <div style={{
+              position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+              backgroundColor: 'rgba(0, 0, 0, 0.7)', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', color: '#fff', zIndex: 50,
+              backdropFilter: 'blur(4px)'
+            }}>
+              <h1 style={{ fontSize: '3em', textShadow: '0 0 20px #0ff', marginBottom: '30px' }}>PAUSED</h1>
+              <div style={{
+                background: '#001a1a', border: '1px solid #0ff', padding: '25px 40px',
+                borderRadius: '10px', fontFamily: 'monospace', lineHeight: '2em', fontSize: '0.9em'
+              }}>
+                <div style={{ color: '#0ff', fontWeight: 'bold', marginBottom: '10px', fontSize: '1.1em' }}>CONTROLS</div>
+                <div><span style={{ color: '#0ff' }}>W / ↑</span> — Pitch Up</div>
+                <div><span style={{ color: '#0ff' }}>S / ↓</span> — Pitch Down</div>
+                <div><span style={{ color: '#0ff' }}>A / ←</span> — Roll Left</div>
+                <div><span style={{ color: '#0ff' }}>D / →</span> — Roll Right</div>
+                <div><span style={{ color: '#0ff' }}>Q</span> — Yaw Left</div>
+                <div><span style={{ color: '#0ff' }}>E</span> — Yaw Right</div>
+                <div><span style={{ color: '#0ff' }}>C</span> — Recalibrate Motion</div>
+                <div style={{ marginTop: '10px', borderTop: '1px solid #333', paddingTop: '10px' }}>
+                  <span style={{ color: '#ffcc00' }}>ESC</span> — Resume
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Controls Hint (fades after 5s) */}
+          <div style={{
+            position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+            color: '#888', fontSize: '0.8em', textAlign: 'center',
+            pointerEvents: 'none', userSelect: 'none', zIndex: 10,
+            animation: 'fadeOutHint 5s forwards'
+          }}>
+            WASD to fly | ESC to pause
+            <style>{`
+              @keyframes fadeOutHint {
+                0% { opacity: 1; }
+                70% { opacity: 1; }
+                100% { opacity: 0; }
+              }
+            `}</style>
+          </div>
 
           {/* Altitude Warnings */}
           {stats.warning && (
