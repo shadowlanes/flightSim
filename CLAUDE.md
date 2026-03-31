@@ -39,8 +39,23 @@ The game engine is separated into distinct, single-responsibility modules:
 - Multi-octave Fractal Brownian Motion (FBM) for varied elevation
 - Four terrain types: FLAT, HILLS, MOUNTAINS (ridged peaks), GORGES
 - Biome transitions based on 2D radial distance from origin
-- Spawns obstacles (asteroids) and collectibles (fuel cells)
+- Spawns obstacles (asteroids) and terrain features (rocks, craters)
 - Manages chunk loading/unloading based on player position
+
+**PlasmaRecharger.ts** - Fuel replenishment system (replaced fuel cells)
+- Spawns plasma recharger stations on terrain with visible beam cones
+- Proximity-based collection: fly through the beam to replenish fuel
+- Auto-expires after 30 seconds if uncollected
+- Ship glow effect on collection
+
+**ShipModel.ts** - Procedural ship geometry
+- Parametric ship mesh built from hex cross-section fuselage, swept wings, and engine nacelles
+- Shape parameters at top of file control dimensions without touching geometry code
+- Supports skin/accent color customization via material properties
+
+**MusicManager.ts** - Background music with crossfade
+- Two-track system with seamless crossfade transitions
+- Tracks stored in `/music/` directory
 
 **PersistenceService.ts** - User data and localStorage
 - Multi-user system stored in localStorage
@@ -54,6 +69,10 @@ The game engine is separated into distinct, single-responsibility modules:
 - HUD rendering (health, fuel, speed, altitude, warnings)
 - Shop/hangar for purchasing upgrades and changing skins
 - Manages game engine lifecycle in `useEffect`
+
+**ShipPreview.tsx** - 3D ship preview component for the shop/hangar UI
+- Renders an interactive ShipModel in a standalone Three.js scene
+- Supports mouse-drag rotation
 
 ### Configuration
 
@@ -114,15 +133,19 @@ Edit `BIOMES` array in `constants.ts`. Each biome needs:
 Terrain parameters for each type are in `TERRAIN_PARAMS` in `TerrainManager.ts`.
 
 ### Adding Collectibles/Obstacles
-Both are spawned in `TerrainManager.createChunk()`:
-- Obstacles: Added to `this.obstacles[]` array, checked in `GameEngine.checkCollisions()`
-- Fuel cells: Added to `this.fuelCells[]` array, checked for distance-based collection
+- Obstacles: Spawned in `TerrainManager.createChunk()`, added to `this.obstacles[]`, checked in `GameEngine.checkCollisions()`
+- Fuel replenishment: Managed by `PlasmaRechargerManager` in `PlasmaRecharger.ts`. Rechargers are spawned/updated via the manager and collected by proximity in `GameEngine`
 
 ### Upgrades
 Upgrade costs are defined in `App.tsx` as `UPGRADE_COSTS` array.
 Effects are applied in:
 - `GameEngine` constructor: maxHealth, fuelDrainRate calculations
 - `ShipController` constructor: skin color passed to ship mesh creation
+
+## Git Conventions
+
+- Use **conventional commit** messages (e.g. `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`).
+- Do **not** add a Co-Authored-By trailer.
 
 ## Important Constraints
 
