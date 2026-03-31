@@ -90,15 +90,12 @@ export class TerrainManager {
     const n1 = this.getNoise(x, z, p1.freq, p1.octaves, p1.ridged);
     const n2 = this.getNoise(x, z, p2.freq, p2.octaves, p2.ridged);
     
-    // Special handling for GORGES in the noise itself if needed
-    let val1 = n1;
-    let val2 = n2;
-    
-    if (b1.terrainType === 'GORGES') val1 = Math.pow(val1, p1.power);
-    else val1 = Math.pow(val1, p1.power);
-    
-    if (b2.terrainType === 'GORGES') val2 = Math.pow(val2, p2.power);
-    else val2 = Math.pow(val2, p2.power);
+    // Apply power curve, then invert for gorges to create deep valleys
+    let val1 = Math.pow(n1, p1.power);
+    if (b1.terrainType === 'GORGES') val1 = 1.0 - val1;
+
+    let val2 = Math.pow(n2, p2.power);
+    if (b2.terrainType === 'GORGES') val2 = 1.0 - val2;
 
     const n = THREE.MathUtils.lerp(val1, val2, transition);
     const amp = THREE.MathUtils.lerp(p1.amp, p2.amp, transition);
